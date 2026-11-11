@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import astroid
+import pytest
 from astroid import nodes
 
 from pylint.checkers import variables
@@ -214,6 +215,40 @@ class TestShadowedModuleAlias(CheckerTestCase):
             assert linter.reporter.finalize().strip() == ""
         finally:
             sys.path.pop(0)
+
+
+@pytest.mark.parametrize(
+    ("code", "mutated"),
+    [
+        ("values = []; values.append(1); first, = values", True),
+        ("values = []; values.extend([1]); first, = values", True),
+        ("values = []; values.insert(0, 1); first, = values", True),
+        ("values = [1]; values.pop(); first, = values", True),
+        ("values = set(); values.add(1); first, = values", True),
+        ("values = {}; values['k'] = 1; first, = values", True),
+        ("values = []; values += [1]; first, = values", True),
+        ("values = []; values[0] = 1; first, = values", True),
+        ("values = [1]; del values[0]; first, = values", True),
+        ("values = [1]; values[0] += 1; first, = values", True),
+        ("values = [1]; values.count(1); first, = values", False),
+        ("values = [1]; method = values.append; first, = values", False),
+        ("values = [1]; element = values[0]; first, = values", False),
+        ("values = [1]; element = values[values]; first, = values", False),
+        ("values = [1]; other.append(1); first, = values", False),
+        ("values = [1]; values += values; first, = values", True),
+        ("values = [1]; first, = values", False),
+    ],
+)
+def test_is_mutated_container(code: str, mutated: bool) -> None:
+    module = astroid.parse(code)
+    assign = next(
+        statement
+        for statement in reversed(module.body)
+        if isinstance(statement, nodes.Assign)
+        and isinstance(statement.targets[0], nodes.Tuple)
+    )
+    assert isinstance(assign.value, nodes.Name)
+    assert variables._is_mutated_container(assign.value) is mutated
 
 
 class TestUnusedArgumentInStubFile(CheckerTestCase):
