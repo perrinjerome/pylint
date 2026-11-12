@@ -178,3 +178,57 @@ def main():
     _, _ = fruit(1, 2, 3)  # known false negative, requires better None comprehension in astroid
     _, _, _ = fruit(1, 2)  # known false negative, requires better None comprehension in astroid
     _, _, _ = fruit(1, 2, 3)
+
+
+def unpack_container_built_by_call():
+    values = []
+    values.append(1)
+    first, = set(values)
+    second, = tuple(values)
+    return first, second
+
+
+def unpack_mutated_sequences():
+    appended = []
+    appended.append(1)
+    first, = appended
+
+    extended = []
+    extended.extend([1])
+    second, = extended
+
+    augmented = []
+    augmented += [1]
+    third, = augmented
+
+    return first, second, third
+
+
+def unpack_mutated_items():
+    indexed = []
+    indexed[0] = 1
+    fourth, = indexed
+
+    deleted = [1]
+    del deleted[0]
+    fifth, = deleted
+
+    added = set()
+    added.add(1)
+    sixth, = added
+
+    keyed = {}
+    keyed["k"] = 1
+    seventh, = keyed
+
+    return fourth, fifth, sixth, seventh
+
+
+def unpack_unmutated_containers():
+    unchanged = [1]
+    eighth, = unchanged
+
+    pair = (1, 2)
+    ninth, tenth = pair
+
+    return eighth, ninth, tenth

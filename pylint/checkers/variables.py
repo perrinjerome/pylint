@@ -58,6 +58,24 @@ DICT_TYPES = (
     nodes.Dict,
 )
 
+MUTATING_CONTAINER_METHODS = frozenset(
+    {
+        "add",
+        "append",
+        "clear",
+        "discard",
+        "extend",
+        "insert",
+        "pop",
+        "popitem",
+        "remove",
+        "reverse",
+        "setdefault",
+        "sort",
+        "update",
+    }
+)
+
 NODES_WITH_VALUE_ATTR = (
     nodes.Assign,
     nodes.AnnAssign,
@@ -102,6 +120,38 @@ def _wildcard_import_binds(stmt: nodes.ImportFrom, name: str) -> bool:
         return name in stmt.do_import_module(stmt.modname).wildcard_import_names()
     except astroid.AstroidBuildingError:
         return False
+
+
+def _is_mutated_container(name: nodes.Name) -> bool:
+    """Whether the container referenced by ``name`` is mutated in its scope.
+
+    Inference of a mutable container literal is flow-insensitive: a mutation
+    such as ``name.append(...)`` between the assignment and the unpacking is
+    ignored, so its inferred element count cannot be trusted.
+    """
+    for usage in name.scope().nodes_of_class((nodes.Name, nodes.AssignName)):
+        if usage.name != name.name:
+            continue
+        parent = usage.parent
+        if isinstance(parent, nodes.Attribute):
+            call = parent.parent
+            if (
+                parent.attrname in MUTATING_CONTAINER_METHODS
+                and isinstance(call, nodes.Call)
+                and call.func is parent
+            ):
+                return True
+        elif isinstance(parent, nodes.AugAssign) and parent.target is usage:
+            return True
+        elif isinstance(parent, nodes.Subscript) and parent.value is usage:
+            statement = parent.parent
+            if isinstance(statement, (nodes.Assign, nodes.Delete)) and any(
+                target is parent for target in statement.targets
+            ):
+                return True
+            if isinstance(statement, nodes.AugAssign) and statement.target is parent:
+                return True
+    return False
 
 
 def _get_unpacking_extra_info(node: nodes.Assign, inferred: InferenceResult) -> str:
@@ -3322,6 +3372,12 @@ class VariablesChecker(BaseChecker):
             and node.value.name == inferred.parent.vararg
         ):
             # Variable-length argument, we can't determine the length.
+            return
+        if (
+            isinstance(node.value, nodes.Name)
+            and isinstance(inferred, (nodes.List, nodes.Set, nodes.Dict))
+            and _is_mutated_container(node.value)
+        ):
             return
 
         # Attempt to check unpacking is properly balanced
